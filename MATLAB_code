@@ -1,0 +1,156 @@
+clc; clear; 
+close all
+[signal,fs]=audioread("DSP project.wav"); 
+output=MBSS(signal,fs,0.25); audiowrite("Output.wav",output,fs); 
+function output = MBSS(signal, fs, 
+IS) if nargin < 3 || isstruct(IS) 
+ IS = 0.25; 
+end
+ 
+ W = fix(0.025 * fs); 
+ nfft = W; SP 
+= 0.4; wnd = 
+hamming(W); 
+ if nargin >= 3 && 
+isstruct(IS) 
+ W = IS.windowsize; 
+SP = IS.shiftsize / W; 
+nfft = IS.nfft; wnd = 
+IS.window; 
+ 
+ if isfield(IS, 'IS') 
+IS = IS.IS; else
+ IS = 0.25; 
+end end
+ 
+ NIS = fix((IS * fs - W) / (SP * W) + 1); 
+ Gamma = 2; 
+ %Controls the power-law compression applied to the magnitude spectrum 
+%applied to the spectral subtraction. Helps to emphasise speech
+ %components while supressing noise. 
+y = segment(signal, W, SP, wnd); 
+ Y = fft(y, nfft); 
+ YPhase = angle(Y(1:fix(end/2) + 1, :)); 
+Y = abs(Y(1:fix(end/2) + 1, :)).^Gamma; 
+numberOfFrames = size(Y, 2); FreqResol 
+= size(Y, 1); 
+ N = mean(Y(:, 1:NIS).').'; 
+ NoiseCounter = 0; 
+ NoiseLength = 9; 
+ Beta = 0.03; 
+ %Scale the estimated noise power spectrum. Determines the proportion 
+%of current noise to be subtracted from magnitude spectrum of each
+ %frame.
+ minalpha = 1; 
+maxalpha = 5; 
+minSNR = -5; maxSNR 
+= 20; 
+ alphaSlope = (minalpha - maxalpha) / (maxSNR - minSNR); 
+% control the subtraction factor. It is determined by SNR
+ alphaShift = maxalpha - alphaSlope * minSNR; 
+ BN = Beta * N;% Noise floor
+ 
+ Delta = 1.5 * ones(size(BN)); 
+ %Scaling factor applied to estimated noise power spectrum based on
+ %frequency. It allows frequency dependant noise reduction.
+ Delta(1:fix((-2000 + fs / 2) * FreqResol * 2 / fs)) = 2.5; 
+ Delta(1:fix(1000 * FreqResol * 2 / fs)) = 1; 
+ 
+ for i = 1:numberOfFrames 
+ [NoiseFlag, SpeechFlag, NoiseCounter, Dist] = vad(Y(:, i).^(1/Gamma), 
+N.^(1/Gamma), NoiseCounter); 
+ if SpeechFlag == 0 
+ N = (NoiseLength * N + Y(:, i)) / (NoiseLength + 1); 
+ BN = Beta * N; 
+end
+ 
+ SNR = 10 * log(Y(:, i) ./ N); alpha 
+= alphaSlope * SNR + alphaShift; alpha = 
+max(min(alpha, maxalpha), minalpha); 
+ D = Y(:, i) - (Delta .* alpha .* N); 
+ X(:, i) = max(D, BN); 
+end 
+ output = OverlapAdd2(X.^(1/Gamma), YPhase, W, SP * W); 
+end 
+function ReconstructedSignal = OverlapAdd2(XNEW, yphase, windowLen, ShiftLen) 
+if nargin < 2 yphase = angle(XNEW); 
+ end if 
+nargin < 3 
+ windowLen = size(XNEW, 1) * 2; 
+end if nargin < 4 
+ ShiftLen = windowLen / 2; 
+end if fix(ShiftLen) ~= 
+ShiftLen ShiftLen = 
+fix(ShiftLen); 
+ disp('The shift length has to be an integer as it is the number of 
+samples.') 
+ disp(['Shift length is fixed to ' num2str(ShiftLen)]) 
+end
+ 
+ [FreqRes, FrameNum] = size(XNEW); 
+ Spec = XNEW .* exp(1i * yphase); 
+ 
+ if mod(windowLen, 2) 
+ Spec = [Spec; flipud(conj(Spec(2:end, :)))]; 
+else
+ Spec = [Spec; flipud(conj(Spec(2:end - 1, :)))]; 
+end 
+ sig = zeros((FrameNum - 1) * ShiftLen + windowLen, 1); 
+weight = sig; 
+ 
+ for i = 1:FrameNum 
+ start = (i - 1) * ShiftLen + 1; 
+spec = Spec(:, i); 
+ sig(start:start + windowLen - 1) = sig(start:start + windowLen - 1) + 
+real(ifft(spec, windowLen)); end
+ 
+ ReconstructedSignal = sig; 
+end 
+function [NoiseFlag, SpeechFlag, NoiseCounter, Dist] = vad(signal, noise, 
+NoiseCounter, NoiseMargin, Hangover) 
+if nargin < 4 NoiseMargin = 
+3; end if nargin < 5 
+ Hangover = 8; 
+end if nargin < 3 
+NoiseCounter = 0; end
+ 
+ FreqResol = length(signal); 
+ SpectralDist = 20 * (log10(signal) - log10(noise)); 
+ SpectralDist(SpectralDist < 0) = 0; 
+ Dist = mean(SpectralDist); 
+ 
+ if Dist < NoiseMargin 
+ NoiseFlag = 1; 
+ NoiseCounter = NoiseCounter + 1; 
+ else
+ NoiseFlag = 0; 
+ NoiseCounter = 0; 
+end if NoiseCounter > 
+Hangover SpeechFlag = 
+0; else
+ SpeechFlag = 1; 
+ end
+end 
+function Seg = segment(signal, W, SP, Window) 
+ if nargin < 3 SP 
+= 0.4; end if nargin 
+< 2 W = 256; end 
+if nargin < 4 Window 
+= hamming(W); end
+ 
+ Window = Window(:); 
+ L = length(signal); 
+ SP = fix(W * SP); 
+ N = fix((L - W) / SP + 1); 
+ Index = (repmat(1:W, N, 1) + repmat((0:(N - 1))' * SP, 1, W))'; 
+ hw = repmat(Window, 1, N); 
+Seg = signal(Index) .* hw; end 
+function wnd = hamming(W) 
+ wnd = 0.54 - 0.46 * cos(2 * pi * (0:W - 1).' / (W - 1)); end
+
+
+
+
+
+ 
+    
